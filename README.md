@@ -1,0 +1,282 @@
+# CopyMath
+
+一个极简的 Windows 小工具：**左边写 LaTeX 公式，右边立刻看到渲染结果，一键复制成图片。**
+
+排版完全交给本机的 LaTeX 引擎，所以输出质量和你在论文里看到的**一模一样**；程序本身只有约 1000 行 C++，不依赖任何第三方 GUI 库。
+
+![CopyMath](CopyMath.png)
+
+---
+
+## 目录
+
+- [功能特性](#功能特性)
+- [第一部分：如何使用](#第一部分如何使用)
+  - [1. 先装 LaTeX（必须）](#1-先装-latex必须)
+  - [2. 运行程序](#2-运行程序)
+  - [3. 界面与快捷键](#3-界面与快捷键)
+  - [4. 设置项说明](#4-设置项说明)
+  - [5. 导言区：使用额外宏包与自定义符号](#5-导言区使用额外宏包与自定义符号)
+- [第二部分：如何从源码编译](#第二部分如何从源码编译)
+  - [环境准备](#环境准备)
+  - [方式一：双击 build.bat](#方式一双击-buildbat)
+  - [方式二：手动执行命令](#方式二手动执行命令)
+  - [编译参数说明](#编译参数说明)
+- [项目结构](#项目结构)
+- [工作原理](#工作原理)
+- [常见问题](#常见问题)
+- [关于 AI 使用](#关于-ai-使用)
+
+---
+
+## 功能特性
+
+- **左侧源码，右侧预览**：所见即所得的 LaTeX 公式渲染
+- **一键复制图片**：粘贴到 Word / 微信 / PPT / 画图都能直接用
+- **一键保存 PNG**：文件名自动带上时间戳，不会互相覆盖
+- **自定义导言区**：想用 `physics`、`esint` 等宏包，或定义自己的符号，随时加
+- **纯 C++ + Win32 API + GDI+**：不使用 Qt / Electron 等任何第三方 GUI 框架
+- **单一 exe 文件**：不需要安装，拷贝即用（绿色便携）
+- **适配高 DPI 屏幕**：界面清晰不发虚
+
+---
+
+# 第一部分：如何使用
+
+## 1. 先装 LaTeX（必须）
+
+CopyMath **自己不做排版**，它调用本机的 LaTeX 引擎来出图。所以使用前需要安装一个 LaTeX 发行版：
+
+| 系统 | 推荐发行版 | 说明 |
+|---|---|---|
+| Windows | [TeX Live](https://tug.org/texlive/) | 推荐，完整安装 |
+| Windows | [MiKTeX](https://miktex.org/) | 更轻量，也可用 |
+
+> **安装时请确保包含 `pdflatex` 与 `pdftocairo` 两个程序。**
+> TeX Live 完整版自带；MiKTeX 首次使用时可能会提示自动补装宏包。
+
+装好之后，程序**会自动探测**常见安装位置（`C:\texlive\2024\bin\windows` 等），
+如果没探测到，打开程序的「设置」手动指定目录即可（见下文）。
+
+## 2. 运行程序
+
+直接双击 `copymath.exe` 即可，无需安装。
+
+程序会在自己的目录下生成一个配置文件 `copymath.cfg`（保存你的设置），
+所以建议把它放在一个**有写入权限**的文件夹里（比如 `D:\Tools\CopyMath\`，不要放在 `C:\Program Files` 下）。
+
+## 3. 界面与快捷键
+
+```
+┌────────────────────────┬────────────────────────┐
+│                        │                        │
+│   LaTeX 公式源码        │      渲染出来的公式      │
+│   （在这里输入）         │      （在这里预览）      │
+│                        │                        │
+├────────────────────────┴────────────────────────┤
+│ [渲染 (F5)] [重置 (F6)] [复制图片] [保存图片] [设置] │
+│ 状态提示信息…                                     │
+└─────────────────────────────────────────────────┘
+```
+
+| 快捷键 | 功能 |
+|---|---|
+| **F5** | **渲染**（把左侧公式渲染成右侧图片） |
+| **F6** | **重置**（清空右侧预览 **和** 左侧输入框） |
+| **Ctrl+D** 或 **F7** | **复制公式图片**到剪贴板 |
+
+**为什么复制图片不用 Ctrl+C？**
+因为光标通常停在左侧输入框里，这时 Ctrl+C 会被输入框截走去复制**文字**。
+所以复制图片改用 **Ctrl+D**（或 F7）——这两个键输入框不占用，无论焦点在哪都能触发。
+
+## 4. 设置项说明
+
+点「设置」按钮，有三个选项：
+
+| 设置项 | 说明 |
+|---|---|
+| **TeX Live 的 bin 目录** | 包含 `pdflatex.exe` 的文件夹，例如 `C:\texlive\2024\bin\windows`。程序会用这里的引擎渲染公式。 |
+| **导出图片路径** | 点「保存图片」时 PNG 写到哪个文件夹。文件名形如 `formula_20260924_083012.png`。 |
+| **导言区** | 见下一节。 |
+
+设置会保存到程序目录的 `copymath.cfg`，下次启动自动读回。当然也可以直接修改 `copymath.cfg`来完成设置。
+
+## 5. 导言区：使用额外宏包与自定义符号
+
+「导言区」就是 LaTeX 文档里 `\documentclass` 之后、`\begin{document}` 之前的那段内容。
+你可以在里面写 `\usepackage{...}` 引入宏包，或用 `\newcommand` 定义自己的快捷键。
+
+默认值是：
+
+```latex
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{xcolor,bm}
+```
+
+举个进阶例子——引入物理公式常用宏包并自定义几个符号：
+
+```latex
+\usepackage{physics}
+\usepackage{esint}
+\usepackage{mathrsfs}
+
+% 正体微分号 \d
+\newcommand{\d}{\mathrm{d}}
+
+% 省事的小写常量
+\newcommand{\i}{\mathrm{i}}
+\newcommand{\e}{\mathrm{e}}
+
+% 常用算子
+\DeclareMathOperator{\arsinh}{arsinh}
+\DeclareMathOperator{\arcosh}{arcosh}
+```
+
+设好之后，左侧就可以直接写 `\d x`、`\arsinh x` 这类命令了。
+
+> 提示：宏包名请写**准确**。如果名字拼错，渲染会失败，错误信息会以红字显示在右侧预览区。
+
+---
+
+# 第二部分：如何从源码编译
+
+如果你只想用程序，上面就够了。以下是给想要自己编译的人的说明。
+
+## 环境准备
+
+### 1. 编译器：MinGW-w64（提供 `g++` 和 `windres`）
+
+推荐使用 [MSYS2](https://www.msys2.org/) 或 [w64devkit](https://github.com/skeeto/w64devkit) 自带的 MinGW-w64。
+
+需要以下两个程序：
+
+| 程序 | 用途 |
+|---|---|
+| `g++.exe` | 编译 C++ 源码 |
+| `windres.exe` | 把图标资源编译进 exe（**g++ 本身不能嵌图标**） |
+
+装好后确认它们的完整路径，例如 `D:\mingw64\bin\g++.exe`。
+
+### 2. LaTeX：TeX Live（编译时**不需要**，运行程序时才需要）
+
+也就是说，**没有装 LaTeX 也能编译出 exe**，只是运行起来会提示找不到引擎。
+
+## 方式一：双击 build.bat
+
+用文本编辑器打开 `build.bat`，确认开头的两行路径和你机器上的实际情况一致：
+
+```bat
+set CC=D:\mingw64\bin\g++.exe
+set RC=D:\mingw64\bin\windres.exe
+```
+
+然后直接双击运行。它会依次做两件事：
+
+1. 用 `windres` 把 `copymath.ico` 编译成 `app_res.o`
+2. 用 `g++` 把源码和 `app_res.o` 链接成 `copymath.exe`
+
+看到 `编译成功：copymath.exe（已嵌入图标）` 就完成了。
+
+## 方式二：手动执行命令
+
+在源码目录下打开命令行（cmd / PowerShell / Git Bash），依次执行：
+
+```bat
+windres app.rc -O coff -o app_res.o
+
+g++ -std=c++17 -O2 -Wall -mwindows -static-libgcc -static-libstdc++ ^
+    main.cpp render.cpp config.cpp clipboard.cpp util.cpp app_res.o ^
+    -o copymath.exe -lgdiplus -lshell32 -lshlwapi -lole32
+```
+
+> 在 **Git Bash** 里把续行符 `^` 换成 `\`。
+
+## 编译参数说明
+
+| 参数 | 含义 |
+|---|---|
+| `-std=c++17` | 使用 C++17 标准 |
+| `-O2` | 开启优化 |
+| `-Wall` | 打开常用警告 |
+| `-mwindows` | 生成**图形界面**程序（不弹出黑色控制台窗口） |
+| `-static-libgcc` / `-static-libstdc++` | 静态链接 GCC 运行库，这样分发的 exe 不需要额外的 DLL |
+| `-o copymath.exe` | 输出文件名 |
+| `-lgdiplus` | GDI+：图片显示与保存 |
+| `-lshell32` | Shell 功能：`SHBrowseForFolder` 选择文件夹 |
+| `-lshlwapi` | 路径工具：`PathFileExists` 等 |
+| `-lole32` | COM：`CoInitializeEx` 等 |
+| `app_res.o` | 图标资源目标文件。**去掉它程序也能编译**，只是 exe 没有图标 |
+
+---
+
+## 项目结构
+
+| 文件 | 作用 |
+|---|---|
+| `main.cpp` | 主程序：窗口、控件、快捷键、渲染调度线程、设置对话框 |
+| `render.cpp` / `render.h` | 渲染核心：拼接 LaTeX 文档 → 调 `pdflatex` → 调 `pdftocairo` 出图 → 读入 GDI+ |
+| `config.cpp` / `config.h` | 配置持久化：读写程序目录的 `copymath.cfg` |
+| `clipboard.cpp` / `clipboard.h` | 把图片以 `CF_DIB` 格式写入系统剪贴板 |
+| `util.cpp` / `util.h` | UTF-16 宽字符与 UTF-8 的互相转换 |
+| `app.rc` | 图标资源脚本 |
+| `copymath.ico` | 程序图标（内含 16/32/48/64/128/256 六种尺寸） |
+| `CopyMath.png` | 图标源图 |
+| `build.bat` | 一键编译脚本 |
+| `copymath.exe` | 已编译好的程序（可直接运行） |
+| `copymath.cfg` | **运行时自动生成**的配置文件（仓库里没有） |
+
+源码总量约 1000 行，每个文件顶部都有详细注释说明其职责。
+
+## 工作原理
+
+```
+   左侧输入 LaTeX 源码（如 \frac{a}{b}）
+              │
+              │  ① 规范化：剥离自带的 $ / \[\] 定界符
+              ▼
+     拼接成一份完整的 .tex 文档（含用户导言区 + preview 宏包）
+              │
+              │  ② 调用 pdflatex          → formula.pdf
+              │  ③ 调用 pdftocairo -png   → formula.png（300 DPI）
+              ▼
+     ④ 用 GDI+ 读入 PNG 得到位图 → 显示在右侧
+              │
+              ▼
+     ⑤ 复制时以 CF_DIB 写入剪贴板 / 保存时编码为 PNG 落盘
+```
+
+细节说明：
+
+- **紧致裁切**：生成的文档用了 `preview` 宏包的 `tightpage` 选项，
+  所以 PDF 页面边界紧贴公式，转出来的图片没有多余白边。
+- **临时文件**：全部放在 `%TEMP%\copymath\` 下，渲染完立即删除。
+- **不卡界面**：渲染在后台线程进行，结果通过自定义 Windows 消息回传主线程。
+- **错误可见**：LaTeX 的报错会以红字直接显示在右侧预览区，而不是只藏在状态栏。
+
+## 常见问题
+
+**Q：右侧一直显示「找不到 pdflatex.exe」？**
+说明没找到 LaTeX 引擎。请确认已安装 TeX Live/MiKTeX，然后在「设置」里把
+**包含 `pdflatex.exe` 的那个文件夹**填进「TeX Live 的 bin 目录」。
+例如 TeX Live 2024 默认是 `C:\texlive\2024\bin\windows`。
+
+**Q：渲染报「Undefined control sequence」？**
+说明用到了没引入的命令。把对应的 `\usepackage{...}` 写进「设置 → 导言区」。
+
+**Q：渲染速度有点慢？**
+每次渲染都要启动 `pdflatex` 进程，通常需要 1～3 秒，这是外部调用 LaTeX 的固有开销。
+程序采用**手动渲染**（按 F5）正是为了避免边打字边渲染造成的等待。
+
+**Q：能渲染中文吗？**
+当前使用的是 `pdflatex`，对中文支持有限。公式内嵌的少量英文/数学符号没有问题。
+
+**Q：换一台电脑要重装吗？**
+不用。`copymath.exe` 是绿色单文件，拷过去就能跑；但**目标机器同样需要安装 LaTeX**。
+
+---
+
+## 关于 AI 使用
+
+> 本项目由 AI 在人类作者实质性指导下生成，按 MIT 许可证授权。
+> 
+> AI 生成的代码可能存在人类未察觉的疏漏，请自行评估 AI 生成代码的质量与安全性，本项目不提供任何形式的担保。
