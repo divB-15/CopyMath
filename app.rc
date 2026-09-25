@@ -1,1 +1,41 @@
+// ============================================================================
+//  app.rc — 资源脚本（程序图标 + 版本信息）
+//
+//  编译：windres -c 65001 app.rc -O coff -o app_res.o
+//        -c 65001 不能省：本文件是 **UTF-8** 编码（下面的版本信息里有中文），
+//        否则 windres 会按系统 ANSI 代码页解析，中文会变成乱码。
+//
+//  版本信息会显示在：右键 exe → 属性 → 详细信息；任务管理器的进程描述里。
+//  注意：这里的 1.1 要与 main.cpp 里的 COPYMATH_VERSION 保持一致。
+// ============================================================================
+
 1 ICON "copymath.ico"
+
+1 VERSIONINFO
+FILEVERSION     1,1,0,0
+PRODUCTVERSION  1,1,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L   // VOS_NT_WINDOWS32
+FILETYPE        0x1L       // VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"     // 语言 0x0804（简体中文）+ 代码页 0x04b0（Unicode 1200）
+        BEGIN
+            VALUE "CompanyName",      "CopyMath"
+            VALUE "FileDescription",  "CopyMath - LaTeX 公式渲染工具"
+            VALUE "FileVersion",      "1.1.0.0"
+            VALUE "InternalName",     "copymath"
+            VALUE "LegalCopyright",   "MIT License"
+            VALUE "OriginalFilename", "copymath.exe"
+            VALUE "ProductName",      "CopyMath"
+            VALUE "ProductVersion",   "1.1.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

@@ -152,6 +152,18 @@ static std::wstring StripDelims(const std::wstring& s) {
     return r;
 }
 
+// 输入里是否含换行符 \\（多行公式）。也可能出现在 matrix/cases 等内层环境里，
+// 那种情况下多包一层 gathered 同样无害。
+static bool HasLineBreak(const std::wstring& s) {
+    return s.find(L"\\\\") != std::wstring::npos;
+}
+
+// 用户导言区里是否已经有 amsmath（mathtools 会自动加载 amsmath）
+static bool PreambleHasAmsmath(const std::wstring& p) {
+    return p.find(L"amsmath") != std::wstring::npos ||
+           p.find(L"mathtools") != std::wstring::npos;
+}
+
 // ---------------------------------------------------------------------------
 // 判断输入是否以“外层数学环境”开头。
 //
@@ -193,6 +205,73 @@ void CleanRenderCache() {
     CleanTempFiles(GetTempDir());
 }
 
+// ---------------------------------------------------------------------------
+// 二次构图：把公式四周多余的空白裁掉（只留一圈很窄的视觉留白）
+//
+// 为什么需要它：pdflatex 的盒子宽度并不总等于公式的自然宽度。
+//   \begin{align}...\end{align} 这类环境生成的盒子宽度就是 \hsize（一整行），
+//   公式在其中居中/对齐，于是图的两侧会留出大片与公式无关的空白。
+//   LaTeX 端我们已经用内联 $\displaystyle$ 避免了大半情况，但 align 这类
+//   多列对齐环境无法内联，只能靠这里按像素扫描兜底。
+//
+// 做法：以 32bpp 读出像素，找出所有「非白且不透明」像素的包围盒，按包围盒裁切，
+// 四周各补 margin 像素的空白。整张图没有墨迹（例如全是白色公式）时原样返回，
+// 避免裁成 0×0。
+//
+// ⚠ 所有权约定（踩过坑）：本函数**只负责 new 出新图，绝不释放传入的 src**。
+//   返回值和 src 相同时表示「没裁」；不同时由**调用方**负责 delete src。
+//   曾经在这里顺手 `delete src` 又让调用方再 delete 一次，直接双重释放崩溃。
+// ---------------------------------------------------------------------------
+static const int kInkMarginPx = 3;   // 300 DPI 下 3px ≈ 0.72pt，仅作视觉留白
+
+static Gdiplus::Bitmap* TrimToInk(Gdiplus::Bitmap* src, int margin) {
+    if (!src || src->GetLastStatus() != Gdiplus::Ok) return src;
+    int w = (int)src->GetWidth(), h = (int)src->GetHeight();
+    if (w <= 0 || h <= 0) return src;
+
+    Gdiplus::BitmapData bd;
+    Gdiplus::Rect all(0, 0, w, h);
+    if (src->LockBits(&all, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bd) != Gdiplus::Ok)
+        return src;
+
+    int minX = w, minY = h, maxX = -1, maxY = -1;
+    for (int y = 0; y < h; ++y) {
+        const BYTE* row = (const BYTE*)bd.Scan0 + (ptrdiff_t)y * bd.Stride;  // 兼容负 stride
+        int rowMinX = -1, rowMaxX = -1;
+        for (int x = 0; x < w; ++x) {
+            const BYTE* p = row + (size_t)x * 4;        // 内存顺序为 BGRA
+            if (p[3] < 16) continue;                    // 全透明 → 背景
+            if (p[0] < 250 || p[1] < 250 || p[2] < 250) {
+                if (rowMinX < 0) rowMinX = x;
+                rowMaxX = x;
+            }
+        }
+        if (rowMinX < 0) continue;                      // 整行空白
+        if (rowMinX < minX) minX = rowMinX;
+        if (rowMaxX > maxX) maxX = rowMaxX;
+        if (y < minY) minY = y;
+        maxY = y;
+    }
+    src->UnlockBits(&bd);
+
+    if (maxX < 0 || maxY < 0) return src;               // 没找到墨迹：保持原图
+
+    int x0 = minX - margin, y0 = minY - margin;
+    int x1 = maxX + margin, y1 = maxY + margin;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > w - 1) x1 = w - 1;
+    if (y1 > h - 1) y1 = h - 1;
+    int cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    if (x0 == 0 && y0 == 0 && cw == w && ch == h) return src;   // 本来就已经是紧的
+
+    // 裁出来的新图用 24bpp RGB：pdftocairo 出的本来就是 24 位无透明图（白底），
+    // 保持这个格式，存出来的 PNG 与 v1.0 一致，也不会白白多出一个 alpha 通道。
+    Gdiplus::Bitmap* out = src->Clone(Gdiplus::Rect(x0, y0, cw, ch), PixelFormat24bppRGB);
+    if (!out || out->GetLastStatus() != Gdiplus::Ok) { delete out; return src; }
+    return out;   // ⚠ 这里**不能**删 src：所有权归调用方，见函数头注释
+}
+
 // ===========================================================================
 //  主入口：渲染
 // ===========================================================================
@@ -217,17 +296,45 @@ Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
         return nullptr;
     }
     bool outerEnv = IsOuterMathEnv(body);
-    std::wstring mathBlock = outerEnv ? body : (L"\\[\n" + body + L"\n\\]\n");
+
+    // ---- 1b) 组装公式块：v1.1 的关键改动 —— 不再用 \[ ... \] ----
+    //  \[ ... \] 生成的行间公式，盒子宽度 = \hsize（整整一行），公式在其中居中。
+    //  而 preview 的 tightpage 是按「盒子」裁页面的，于是裁出来的是**整行宽**的图，
+    //  两侧全是与公式无关的空白（实测：公式本身宽 335px，出图却宽 1624px）。
+    //
+    //  改用内联数学 $\displaystyle ...$：盒子宽度 = 公式自身的自然宽度，既紧致，
+    //  又不受 \hsize 限制（用 \[ \] 时，超过一行的长公式会被 PDF 页面裁掉，这是隐患）。
+    //  \displaystyle 保证行内也按行间公式的字号排版（大分式、大积分号不变小）。
+    //
+    //  两个例外：
+    //   · 含 \\ 的多行内容 —— 行内数学里 \\ 非法，改用 gathered 包起来。gathered 的
+    //     宽度天然等于最宽一行的宽度、各行居中，观感与行间公式一致；
+    //   · align / equation 等外层环境 —— 无法内联，保持原样，由第 8 步 TrimToInk 裁齐。
+    std::wstring mathBlock;
+    bool needAmsmath = false;                      // 是否需要替用户补上 amsmath 宏包
+    if (outerEnv) {
+        mathBlock = body;
+    } else if (HasLineBreak(body)) {
+        mathBlock = L"$\\displaystyle\\begin{gathered}\n" + body + L"\n\\end{gathered}$\n";
+        needAmsmath = !PreambleHasAmsmath(preamble);   // gathered 来自 amsmath
+    } else {
+        mathBlock = L"$\\displaystyle " + body + L"$\n";
+    }
 
     // ---- 2) 组装完整 .tex 文档 ----
     //  用 preview 宏包的 tightpage 选项，让 PDF 的页面边界紧贴公式，
-    //  这样转出来的 PNG 没有多余白边（这也是本项目“紧致裁切”的关键）。
+    //  这样 PDF 页面在高度方向就紧贴公式；宽度方向由第 8 步的 TrimToInk 兜底。
     std::wstring content =
         L"\\documentclass[12pt]{article}\n"
         L"\\usepackage[utf8]{inputenc}\n"
         L"\\pagestyle{empty}\n"
         + preamble +                                        // ← 用户导言区
+        (needAmsmath ? L"\\usepackage{amsmath}\n" : L"") +  // ← 用到 gathered 而用户没引 amsmath 时补上
         L"\\usepackage[active,tightpage]{preview}\n"
+        // 给紧致页面留 2pt 保护白边：实测不留白边时页面边框正好压在墨迹上，
+        // 光栅化会把最外一圈像素（斜体挑出的笔画、根号尖端）削掉一点点。
+        // 有了这圈白边，第 8 步再按墨迹裁，既不丢笔画，四周也能有统一的留白。
+        L"\\setlength\\PreviewBorder{2pt}\n"
         L"\\begin{document}\n"
         L"\\begin{preview}\n"
         + mathBlock +
@@ -298,5 +405,13 @@ Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
     DeleteFileW(pdfFile.c_str());
     DeleteFileW(logFile.c_str());
     DeleteFileW(pngFile.c_str());
+
+    // ---- 8) 二次构图：裁掉公式四周多余的空白 ----
+    //   LaTeX 端只能保证「非外层环境」的盒子贴合公式（见 1b）；align / equation 这类
+    //   环境的盒子宽度仍然是 \hsize（一整行），两侧会留出大片与公式无关的空白。
+    //   这里按像素扫描出墨迹的包围盒，裁到只剩一圈很窄的留白，
+    //   确保复制/保存出来的图片尺寸就是公式本身的大小。
+    Gdiplus::Bitmap* trimmed = TrimToInk(bmp, kInkMarginPx);
+    if (trimmed && trimmed != bmp) { delete bmp; bmp = trimmed; }
     return bmp;
 }

@@ -17,14 +17,19 @@
 // 把一段 LaTeX 数学内容渲染成 GDI+ Bitmap。
 //
 // 参数：
-//   latex       —— 公式源码。默认按“行间公式”处理，会自动包进 \[ ... \]；
-//                  若用户自带 $$..$$ / \[..\] / $..$ 定界符，会先自动剥离；
+//   latex       —— 公式源码。若用户自带 $$..$$ / \[..\] / $..$ 定界符，会先自动剥离；
+//                  剥完按**内联数学** $\displaystyle ...$ 排版，而不是 \[ ... \]
+//                  —— 后者生成的盒子宽度是整整一行（\hsize），公式在其中居中，
+//                  图的两侧会多出一大片与公式无关的空白；
+//                  含 \\ 的多行内容改用 gathered 包裹（宽度 = 最宽一行）；
 //                  若是 align/equation 等“外层数学环境”，则直接使用、不再包裹。
 //   preamble    —— 导言区（\usepackage 与自定义命令），原样插入文档头部。
 //   texliveBin  —— 含 pdflatex.exe / pdftocairo.exe 的目录。
 //   errorOut    —— 出错时写入中文错误说明（可为 nullptr）。
 //
 // 返回：成功时返回 new 出来的 Bitmap（**调用者负责 delete**）；
+//       位图已经过“按墨迹二次裁剪”（TrimToInk），四周只留 3px 空白，
+//       尺寸即公式本身的大小；
 //       失败返回 nullptr。空输入返回 nullptr 且 errorOut 为空串（表示“无内容”，
 //       不是错误），调用方据此显示占位提示而不是报错。
 Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,

@@ -13,10 +13,11 @@ if not exist "copymath.ico" (
     exit /b 1
 )
 
-REM 先把图标编译成目标文件（windres），再一起链接
-"%RC%" app.rc -O coff -o app_res.o
+REM 先把图标与版本信息编译成目标文件（windres），再一起链接。
+REM -c 65001：app.rc 是 UTF-8 编码（版本信息里有中文），必须显式告诉 windres。
+"%RC%" -c 65001 app.rc -O coff -o app_res.o
 if errorlevel 1 (
-    echo 图标资源编译失败
+    echo 图标/版本资源编译失败
     pause
     exit /b 1
 )
@@ -25,7 +26,7 @@ if errorlevel 1 (
     main.cpp render.cpp config.cpp clipboard.cpp util.cpp app_res.o ^
     -o copymath.exe -lgdiplus -lshell32 -lshlwapi -lole32
 if %errorlevel%==0 (
-    echo 编译成功：copymath.exe（已嵌入图标）
+    echo 编译成功：copymath.exe（已嵌入图标与版本信息 1.1）
 ) else (
     echo 编译失败，请根据上方报错修改源码
 )

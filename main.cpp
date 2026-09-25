@@ -15,8 +15,19 @@
 //    · 渲染放在后台线程，界面不卡；
 //    · 手动渲染（F5 / 按钮），不随输入实时触发。
 //
-//  快捷键：F5 渲染　F6 重置（含清空输入）　Ctrl+D / F7 复制图片　Ctrl+A 全选
+//  快捷键：F5 渲染　F6 重置（含清空输入）　Ctrl+D / F7 复制图片
+//            Ctrl+S 保存图片　Ctrl+A 全选
+//
+//  v1.1 的三处改动：
+//    1) 新增快捷键 Ctrl+S 保存图片（原“保存图片”按钮同步标注）；
+//    2) 保存/复制的图片不再留一大片横向白边，改为紧贴公式宽度
+//       （见 render.cpp 的 1b 节与第 8 步 TrimToInk）；
+//    3) exe 加入版本资源 1.1（见 app.rc 的 VERSIONINFO）。
 // ============================================================================
+
+// ---- 版本号 ---------------------------------------------------------------
+//  同时体现在 exe 文件属性（app.rc 的 VERSIONINFO）与窗口标题上，两者请保持一致。
+#define COPYMATH_VERSION L"1.1"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -69,7 +80,7 @@ HWND g_hBtnRender = NULL, g_hBtnReset = NULL, g_hBtnCopy = NULL,
 // 设置对话框及其控件
 HWND g_hSettings = NULL, g_hSetTex = NULL, g_hSetExp = NULL, g_hSetPre = NULL;
 
-HACCEL g_hAccel = NULL;        // 加速键表（F5 / F6 / Ctrl+D / F7）
+HACCEL g_hAccel = NULL;        // 加速键表（F5 / F6 / Ctrl+D / F7 / Ctrl+S）
 HFONT  g_hFontUI = NULL;       // 界面字体（微软雅黑，按 DPI 缩放）
 HFONT  g_hFontEdit = NULL;     // 输入框字体（略大，便于阅读代码）
 double g_dpiScale = 1.0;       // DPI 缩放系数 = LOGPIXELSY / 96
@@ -296,7 +307,12 @@ void SaveImage() {
     CLSID png;
     if (!GetEncoderClsid(L"image/png", &png)) { SetStatus(L"无法获取 PNG 编码器"); return; }
     Gdiplus::Status st = g_viewBitmap->Save(path.c_str(), &png, NULL);
-    if (st == Gdiplus::Ok) SetStatus(L"已保存：" + path);
+    if (st == Gdiplus::Ok) {
+        // 顺带报出像素尺寸，便于确认图片已经贴紧公式（而不是带着一大片白边）
+        std::wstring size = L"（" + std::to_wstring(g_viewBitmap->GetWidth())
+                          + L" × " + std::to_wstring(g_viewBitmap->GetHeight()) + L" px）";
+        SetStatus(L"已保存：" + path + size);
+    }
     else SetStatus(L"保存失败（错误码 " + std::to_wstring((long)st) + L"）");
 }
 
@@ -378,17 +394,18 @@ LRESULT CALLBACK ViewProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
                 // 还没有图：显示操作提示
                 SetTextColor(hdc, RGB(120, 120, 120));
                 SetBkMode(hdc, TRANSPARENT);
-                DrawTextW(hdc, L"在左侧输入 LaTeX 源码，按 F5 渲染（Ctrl+D 复制公式图片）", -1, &rc,
+                DrawTextW(hdc, L"在左侧输入 LaTeX 源码，按 F5 渲染（Ctrl+D 复制图片 / Ctrl+S 保存图片）", -1, &rc,
                           DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             }
             EndPaint(hwnd, &ps);
             return 0;
         }
         case WM_KEYDOWN:
-            // 预览区获得焦点时，Ctrl+C 也能复制图片（平时焦点在输入框，用 Ctrl+D）
-            if (w == 'C' && (GetKeyState(VK_CONTROL) & 0x8000)) {
-                CopyViewToClipboard();
-                return 0;
+            // 预览区获得焦点时补一手（平时焦点在输入框，那里由加速键表统一处理）：
+            // Ctrl+C 复制图片、Ctrl+S 保存图片。
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                if (w == 'C') { CopyViewToClipboard(); return 0; }
+                if (w == 'S') { SaveImage();            return 0; }
             }
             break;
     }
@@ -577,7 +594,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
                 0, 0, 100, 32, hwnd, (HMENU)IDC_RESET, g_hInst, NULL);
             g_hBtnCopy = CreateWindowExW(0, L"BUTTON", L"复制图片 (Ctrl+D)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 0, 0, 160, 32, hwnd, (HMENU)IDC_COPY, g_hInst, NULL);
-            g_hBtnSave = CreateWindowExW(0, L"BUTTON", L"保存图片", WS_CHILD | WS_VISIBLE,
+            g_hBtnSave = CreateWindowExW(0, L"BUTTON", L"保存图片 (Ctrl+S)", WS_CHILD | WS_VISIBLE,
                 0, 0, 120, 32, hwnd, (HMENU)IDC_SAVE, g_hInst, NULL);
             g_hBtnSettings = CreateWindowExW(0, L"BUTTON", L"设置", WS_CHILD | WS_VISIBLE,
                 0, 0, 120, 32, hwnd, (HMENU)IDC_SETTINGS, g_hInst, NULL);
@@ -787,7 +804,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     // ---- 创建主窗口 ----
     // 公式多是横向排版，所以默认窗口做得“宽而矮”。尺寸也按 DPI 缩放，
     // 否则高 DPI 下按钮（宽度按文字自适应）会撑出窗口。
-    HWND hwnd = CreateWindowExW(0, L"CopyMathMain", L"CopyMath - LaTeX 公式渲染（F5 渲染 / F6 重置 / Ctrl+D 复制）",
+    HWND hwnd = CreateWindowExW(0, L"CopyMathMain",
+        L"CopyMath " COPYMATH_VERSION L" - LaTeX 公式渲染（F5 渲染 / F6 重置 / Ctrl+D 复制 / Ctrl+S 保存）",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, Px(1000), Px(400),
         NULL, NULL, hInst, NULL);
     ShowWindow(hwnd, nCmdShow);
@@ -802,13 +820,15 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     //   F6        → 重置（含清空输入）
     //   Ctrl+D    → 复制图片（Ctrl+C 会被输入框截走用于复制文本，故改用 Ctrl+D）
     //   F7        → 复制图片（备用键）
-    ACCEL acc[4] = {
+    //   Ctrl+S    → 保存图片（同样是输入框不占用的组合键）
+    ACCEL acc[5] = {
         { FVIRTKEY,            VK_F5,  (WORD)IDM_RENDER_F5 },
         { FVIRTKEY,            VK_F6,  (WORD)IDC_RESET     },
         { FCONTROL | FVIRTKEY, 'D',    (WORD)IDC_COPY      },
-        { FVIRTKEY,            VK_F7,  (WORD)IDC_COPY      }
+        { FVIRTKEY,            VK_F7,  (WORD)IDC_COPY      },
+        { FCONTROL | FVIRTKEY, 'S',    (WORD)IDC_SAVE      }
     };
-    g_hAccel = CreateAcceleratorTableW(acc, 4);
+    g_hAccel = CreateAcceleratorTableW(acc, 5);
 
     // ---- 消息循环 ----
     MSG msg;
