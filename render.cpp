@@ -1,4 +1,5 @@
 #include "render.h"
+#include "config.h"
 #include "util.h"
 #include <windows.h>
 #include <gdiplus.h>
@@ -16,19 +17,24 @@
 //    latex 源码
 //       │  StripDelims()   剥离用户自带的定界符
 //       ▼
-//    formula.tex ──pdflatex──▶ formula.pdf ──pdftocairo──▶ formula.png
-//       │                                                    │
-//       └──────────── 读入 GDI+ Bitmap ◀─────────────────────┘
+//    formula.tex ──pdflatex──▶ formula.pdf ──pdftocairo -r <DPI>──▶ formula.png
+//       │                                                              │
+//       └────────────── 读入 GDI+ Bitmap ◀────────────────────────────┘
 //
-//  所有中间文件都放在 %TEMP%\copymath\ 下（固定文件名 formula.*），
+//  所有中间文件都放在 %TEMP%\CopyMath\ 下（固定文件名 formula.*），
 //  渲染完成后立即删除，不留垃圾；渲染前也会先清一遍，避免旧文件干扰。
+//
+//  v1.2：出图分辨率从写死的 300 改成由调用方传入（设置里的“输出分辨率”）。
 // ============================================================================
 
-// 返回并确保存在临时工作目录：%TEMP%\copymath
+// 300 DPI 下的墨迹留白像素数；其它 DPI 按比例折算（见 TrimToInk 调用处）
+static const int kInkMarginPxAt300 = 3;
+
+// 返回并确保存在临时工作目录：%TEMP%\CopyMath
 static std::wstring GetTempDir() {
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);                 // 结尾自带反斜杠
-    std::wstring dir = std::wstring(tmp) + L"copymath";
+    std::wstring dir = std::wstring(tmp) + L"CopyMath";
     CreateDirectoryW(dir.c_str(), NULL);         // 已存在会失败，忽略即可
     return dir;
 }
@@ -126,7 +132,7 @@ static std::wstring TrimWs(const std::wstring& s) {
 // ---------------------------------------------------------------------------
 // 剥离用户粘贴时可能自带的数学定界符。
 //
-// 为什么需要：程序默认会把输入包进 \[ ... \]，如果用户从论文/Markdown 里
+// 为什么需要：程序默认会把输入包进内联数学，如果用户从论文/Markdown 里
 // 复制来的内容本身就带 \[..\] 或 $..$，就会变成嵌套，LaTeX 直接报错
 // （`Bad math environment delimiter`）。所以先统一剥掉。
 // ---------------------------------------------------------------------------
@@ -168,7 +174,7 @@ static bool PreambleHasAmsmath(const std::wstring& p) {
 // 判断输入是否以“外层数学环境”开头。
 //
 // 这些环境（align / equation / gather 等）**自身就是显示数学**，会自己
-// 排版成独立公式块。如果再把它们包进 \[ ... \]，LaTeX 会报错，所以对它们
+// 排版成独立公式块。如果再把它们包进内联数学，LaTeX 会报错，所以对它们
 // 直接原样使用、不再包裹。
 // ---------------------------------------------------------------------------
 static bool IsOuterMathEnv(const std::wstring& s) {
@@ -222,8 +228,6 @@ void CleanRenderCache() {
 //   返回值和 src 相同时表示「没裁」；不同时由**调用方**负责 delete src。
 //   曾经在这里顺手 `delete src` 又让调用方再 delete 一次，直接双重释放崩溃。
 // ---------------------------------------------------------------------------
-static const int kInkMarginPx = 3;   // 300 DPI 下 3px ≈ 0.72pt，仅作视觉留白
-
 static Gdiplus::Bitmap* TrimToInk(Gdiplus::Bitmap* src, int margin) {
     if (!src || src->GetLastStatus() != Gdiplus::Ok) return src;
     int w = (int)src->GetWidth(), h = (int)src->GetHeight();
@@ -266,7 +270,7 @@ static Gdiplus::Bitmap* TrimToInk(Gdiplus::Bitmap* src, int margin) {
     if (x0 == 0 && y0 == 0 && cw == w && ch == h) return src;   // 本来就已经是紧的
 
     // 裁出来的新图用 24bpp RGB：pdftocairo 出的本来就是 24 位无透明图（白底），
-    // 保持这个格式，存出来的 PNG 与 v1.0 一致，也不会白白多出一个 alpha 通道。
+    // 保持这个格式，存出来的 PNG 与 v1.0/v1.1 一致，也不会白白多出一个 alpha 通道。
     Gdiplus::Bitmap* out = src->Clone(Gdiplus::Rect(x0, y0, cw, ch), PixelFormat24bppRGB);
     if (!out || out->GetLastStatus() != Gdiplus::Ok) { delete out; return src; }
     return out;   // ⚠ 这里**不能**删 src：所有权归调用方，见函数头注释
@@ -278,8 +282,15 @@ static Gdiplus::Bitmap* TrimToInk(Gdiplus::Bitmap* src, int margin) {
 Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
                                const std::wstring& preamble,
                                const std::wstring& texliveBin,
+                               int dpi,
                                std::wstring* errorOut) {
     if (errorOut) *errorOut = L"";
+
+    // 分辨率钳制到合法区间：设置对话框已经校验过一次，这里再兜一层，
+    // 免得有人手改 CopyMath.cfg 写出 0 或 99999 把 pdftocairo 弄崩。
+    int useDpi = dpi;
+    if (useDpi < kDpiMin) useDpi = kDpiMin;
+    if (useDpi > kDpiMax) useDpi = kDpiMax;
 
     std::wstring dir = GetTempDir();
     CleanTempFiles(dir);                          // 先清掉上次遗留
@@ -374,9 +385,10 @@ Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
     }
 
     // ---- 5) pdftocairo：.pdf → .png ----
-    //    -png -r 300 : 输出 PNG，300 DPI（分辨率足够高，缩放/打印都清晰）
-    //    -singlefile : 输出单文件 <基名>.png（否则会带页码后缀）
-    std::wstring cmd2 = L"\"" + pdftocairo + L"\" -png -r 300 -singlefile \"" + pdfFile + L"\" \"" + pngBase + L"\"";
+    //    -png -r <dpi> : 输出 PNG，分辨率取自设置（默认 300）
+    //    -singlefile   : 输出单文件 <基名>.png（否则会带页码后缀）
+    std::wstring cmd2 = L"\"" + pdftocairo + L"\" -png -r " + std::to_wstring(useDpi)
+                      + L" -singlefile \"" + pdfFile + L"\" \"" + pngBase + L"\"";
     int r2 = RunCommand(cmd2);
     std::wstring pngFile = pngBase + L".png";     // -singlefile 固定产出这个名字
     if (r2 != 0 || !PathFileExistsW(pngFile.c_str())) {
@@ -411,7 +423,14 @@ Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
     //   环境的盒子宽度仍然是 \hsize（一整行），两侧会留出大片与公式无关的空白。
     //   这里按像素扫描出墨迹的包围盒，裁到只剩一圈很窄的留白，
     //   确保复制/保存出来的图片尺寸就是公式本身的大小。
-    Gdiplus::Bitmap* trimmed = TrimToInk(bmp, kInkMarginPx);
+    //   留白宽度随 DPI 等比缩放：300 DPI 下 3px，600 DPI 下 6px（保持视觉留白一致）。
+    int margin = (int)(kInkMarginPxAt300 * (double)useDpi / 300.0 + 0.5);
+    if (margin < 1) margin = 1;
+    Gdiplus::Bitmap* trimmed = TrimToInk(bmp, margin);
     if (trimmed && trimmed != bmp) { delete bmp; bmp = trimmed; }
+
+    // 把分辨率写进位图对象：后面保存 PNG 时编码器会据此写 pHYs 块，
+    // 复制到剪贴板时也会用到（见 clipboard.cpp）。
+    bmp->SetResolution((Gdiplus::REAL)useDpi, (Gdiplus::REAL)useDpi);
     return bmp;
 }

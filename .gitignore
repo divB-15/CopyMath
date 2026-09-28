@@ -3,7 +3,10 @@ app_res.o
 *.o
 
 # 运行时自动生成的配置文件：含使用者本机的路径，属于个人配置
-copymath.cfg
+CopyMath.cfg
+
+# 运行时自动生成的使用日志
+logs.txt
 
 # 临时/备份文件
 *.tmp

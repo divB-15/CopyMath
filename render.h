@@ -12,6 +12,8 @@
 //  好处是排版质量 = 真 LaTeX（100% 保真）；代价是运行时依赖 TeX Live。
 //
 //  这是本模块对外唯一的主入口（另有 CleanRenderCache 供“重置”使用）。
+//
+//  v1.2：新增 dpi 参数（原来固定 300），出图分辨率由用户在设置里指定。
 // ============================================================================
 
 // 把一段 LaTeX 数学内容渲染成 GDI+ Bitmap。
@@ -25,16 +27,19 @@
 //                  若是 align/equation 等“外层数学环境”，则直接使用、不再包裹。
 //   preamble    —— 导言区（\usepackage 与自定义命令），原样插入文档头部。
 //   texliveBin  —— 含 pdflatex.exe / pdftocairo.exe 的目录。
+//   dpi         —— 输出分辨率（pdftocairo 的 -r 参数）。会自动钳制到
+//                  kDpiMin～kDpiMax（见 config.h），越界值不会报错。
 //   errorOut    —— 出错时写入中文错误说明（可为 nullptr）。
 //
 // 返回：成功时返回 new 出来的 Bitmap（**调用者负责 delete**）；
-//       位图已经过“按墨迹二次裁剪”（TrimToInk），四周只留 3px 空白，
-//       尺寸即公式本身的大小；
+//       位图已经过“按墨迹二次裁剪”（TrimToInk），四周只留按 DPI 折算的窄白边
+//       （300 DPI 下为 3px，其它 DPI 等比缩放），尺寸即公式本身的大小；
 //       失败返回 nullptr。空输入返回 nullptr 且 errorOut 为空串（表示“无内容”，
 //       不是错误），调用方据此显示占位提示而不是报错。
 Gdiplus::Bitmap* RenderFormula(const std::wstring& latex,
                                const std::wstring& preamble,
                                const std::wstring& texliveBin,
+                               int dpi,
                                std::wstring* errorOut);
 
 // 清空渲染缓存：删除临时目录里所有 formula.* 文件。

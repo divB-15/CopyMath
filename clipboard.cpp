@@ -14,9 +14,11 @@
 //
 //  我们统一按 32 位、top-down 方式组织：把 BITMAPINFOHEADER.biHeight 写成
 //  负数表示“第一行在最上面”（与 GDI+ 的内存顺序一致），否则上下会颠倒。
+//
+//  v1.2：新增 dpi 参数，写进 biXPelsPerMeter / biYPelsPerMeter。
 // ============================================================================
 
-bool CopyBitmapToClipboard(HWND hwnd, Gdiplus::Bitmap* bmp) {
+bool CopyBitmapToClipboard(HWND hwnd, Gdiplus::Bitmap* bmp, int dpi) {
     if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) return false;
 
     int w = bmp->GetWidth();
@@ -36,6 +38,8 @@ bool CopyBitmapToClipboard(HWND hwnd, Gdiplus::Bitmap* bmp) {
     if (!hMem) { bmp->UnlockBits(&bd); return false; }
 
     // 3) 填 BITMAPINFOHEADER，再把像素拷到它后面
+    //    1 英寸 = 0.0254 m，所以 每米像素数 = dpi / 0.0254 = dpi × 39.3700787
+    LONG ppm = (LONG)((dpi > 0 ? dpi : 96) * 39.3700787 + 0.5);
     BYTE* pMem = (BYTE*)GlobalLock(hMem);
     BITMAPINFOHEADER* bi = (BITMAPINFOHEADER*)pMem;
     bi->biSize = sizeof(BITMAPINFOHEADER);
@@ -45,6 +49,8 @@ bool CopyBitmapToClipboard(HWND hwnd, Gdiplus::Bitmap* bmp) {
     bi->biBitCount = 32;
     bi->biCompression = BI_RGB;                          // 不压缩
     bi->biSizeImage = pixelSize;
+    bi->biXPelsPerMeter = ppm;                           // 供 Word / PPT 换算物理尺寸
+    bi->biYPelsPerMeter = ppm;
     memcpy(pMem + headerSize, bd.Scan0, pixelSize);
     GlobalUnlock(hMem);
     bmp->UnlockBits(&bd);

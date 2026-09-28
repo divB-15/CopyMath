@@ -7,8 +7,8 @@ if not exist "%CC%" (
     pause
     exit /b 1
 )
-if not exist "copymath.ico" (
-    echo 未找到 copymath.ico，无法嵌入图标
+if not exist "CopyMath.ico" (
+    echo 未找到 CopyMath.ico，无法嵌入图标
     pause
     exit /b 1
 )
@@ -23,10 +23,10 @@ if errorlevel 1 (
 )
 
 "%CC%" -std=c++17 -O2 -Wall -mwindows -static-libgcc -static-libstdc++ ^
-    main.cpp render.cpp config.cpp clipboard.cpp util.cpp app_res.o ^
-    -o copymath.exe -lgdiplus -lshell32 -lshlwapi -lole32
+    main.cpp render.cpp config.cpp clipboard.cpp log.cpp util.cpp app_res.o ^
+    -o CopyMath.exe -lgdiplus -lshell32 -lshlwapi -lole32
 if %errorlevel%==0 (
-    echo 编译成功：copymath.exe（已嵌入图标与版本信息 1.1）
+    echo 编译成功：CopyMath.exe（已嵌入图标与版本信息 1.2）
 ) else (
     echo 编译失败，请根据上方报错修改源码
 )
