@@ -1,0 +1,24 @@
+# ============================================================================
+#  .clang-format — 与现有代码风格保持一致
+#  用 `clang-format -i src/**/*.cpp src/**/*.h` 统一格式（可选，没有 clang-format 也不影响构建）
+# ============================================================================
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++17
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+BreakBeforeBraces: Attach          # if (...) { 大括号不换行
+IndentCaseLabels: true             # switch 里的 case 缩进一级
+PointerAlignment: Right            # int *p 而不是 int* p
+
+AllowShortFunctionsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: false
+
+SortIncludes: false                # 头文件顺序有讲究（objbase.h 必须在 gdiplus.h 前），别自动排
+AlignTrailingComments: true
+SpaceAfterCStyleCast: false

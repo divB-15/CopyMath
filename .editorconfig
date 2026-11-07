@@ -1,0 +1,25 @@
+# ============================================================================
+#  .editorconfig — 让不同编辑器用同一套换行/缩进规则
+#
+#  ⚠ .bat 必须是 CRLF + ASCII：cmd.exe 遇到纯 LF 会把 `^` 续行解析错，
+#    中文在 GBK 控制台下会变乱码。
+# ============================================================================
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{bat,cmd}]
+end_of_line = crlf
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
