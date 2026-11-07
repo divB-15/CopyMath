@@ -1,33 +1,51 @@
 @echo off
-REM 用 MinGW 编译 CopyMath（纯 Win32 API + GDI+，无 Qt / 无第三方 GUI 库）
-set CC=D:\mingw64\bin\g++.exe
-set RC=D:\mingw64\bin\windres.exe
-if not exist "%CC%" (
-    echo 未找到 MinGW g++，请修改本文件中的 CC 路径
-    pause
-    exit /b 1
+REM ===========================================================================
+REM  CopyMath - one-click build (CMake + MinGW-w64).
+REM
+REM  Requirements for building from source:
+REM    * CMake  (on PATH, or set CMAKE=<path\to\cmake.exe>)
+REM    * MinGW-w64 (g++.exe / mingw32-make.exe on PATH)
+REM  A git-ignored ".build.local.bat" next to this script may pre-set CMAKE /
+REM  CXX for convenience; it is never part of the release.
+REM
+REM  Keep this file CRLF + ASCII only.
+REM ===========================================================================
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
+
+if exist "%~dp0.build.local.bat" call "%~dp0.build.local.bat"
+
+if not defined CMAKE (
+  where cmake >nul 2>nul && set "CMAKE=cmake"
 )
-if not exist "CopyMath.ico" (
-    echo 未找到 CopyMath.ico，无法嵌入图标
-    pause
-    exit /b 1
+if not defined CMAKE (
+  echo [ERROR] CMake was not found.
+  echo   Install CMake (https://cmake.org/download) and add it to PATH,
+  echo   or set the CMAKE environment variable to its executable.
+  exit /b 1
 )
 
-REM 先把图标与版本信息编译成目标文件（windres），再一起链接。
-REM -c 65001：app.rc 是 UTF-8 编码（版本信息里有中文），必须显式告诉 windres。
-"%RC%" -c 65001 app.rc -O coff -o app_res.o
+where g++.exe >nul 2>nul
 if errorlevel 1 (
-    echo 图标/版本资源编译失败
-    pause
-    exit /b 1
+  echo [ERROR] g++.exe was not found in PATH.
+  echo   Install MinGW-w64 and add its bin folder to PATH, then re-run.
+  exit /b 1
 )
 
-"%CC%" -std=c++17 -O2 -Wall -mwindows -static-libgcc -static-libstdc++ ^
-    main.cpp render.cpp config.cpp clipboard.cpp log.cpp util.cpp app_res.o ^
-    -o CopyMath.exe -lgdiplus -lshell32 -lshlwapi -lole32
-if %errorlevel%==0 (
-    echo 编译成功：CopyMath.exe（已嵌入图标与版本信息 1.2）
-) else (
-    echo 编译失败，请根据上方报错修改源码
-)
-pause
+echo [1/2] configure ...
+"%CMAKE%" -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+if errorlevel 1 goto :fail
+
+echo [2/2] build ...
+"%CMAKE%" --build build --parallel
+if errorlevel 1 goto :fail
+
+echo.
+echo Build OK: bin\CopyMath.exe
+echo Tests   : ctest --test-dir build --output-on-failure
+exit /b 0
+
+:fail
+echo.
+echo Build FAILED - see the errors above.
+exit /b 1
