@@ -42,6 +42,3 @@ Thumbs.db
 #  CMake / compiler paths so build.bat stays portable for everyone else)
 # ---------------------------------------------------------------------------
 .build.local.bat
-
-# Local agent / workspace data
-.workbuddy/
